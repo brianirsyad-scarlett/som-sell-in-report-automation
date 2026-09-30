@@ -1,0 +1,48 @@
+name: Promote to production
+
+# Copies the GitHub-built Primary_Sales, Anchanto, PCC_Sales and PCC_Order_Number
+# parquets over the production names in gs://bucket_som/sales_parquet/, after
+# backing up the current production files to sales_parquet/backup/<timestamp>/.
+# Manual only. Leave "apply" off for a dry run that just shows the differences.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually copy (off = dry run)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sell-in-pipeline
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Jakarta
+  GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/gcp_key.json
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install pyarrow==25.0.1 "google-cloud-storage>=2.14"
+
+      - name: Write GCS credentials from secret
+        run: |
+          cat <<'EOF' > gcp_key.json
+          ${{ secrets.GCP_SA_KEY }}
+          EOF
+
+      - name: Promote
+        run: |
+          args=()
+          [ "${{ inputs.apply }}" = "true" ] && args+=(--apply)
+          python -u promote_to_production.py "${args[@]}"
