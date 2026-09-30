@@ -35,6 +35,13 @@ PROMOTIONS = {
 }
 BACKUP_ROOT = "sales_parquet/backup"
 
+# Columns a promotion is allowed to add. The GitHub Anchanto.parquet carries the
+# raw Dispatch Date (Sell In dates a sale by it, else CreatedOn), which the
+# local one lacks. Any other added or dropped column blocks --apply.
+EXPECTED_NEW_COLUMNS = {
+    "sales_parquet/Anchanto.parquet": {"Dispatch Date"},
+}
+
 
 def describe(blob) -> str:
     return f"{blob.size / 1e6:,.1f} MB, updated {blob.updated.astimezone(WIB):%Y-%m-%d %H:%M} WIB"
@@ -63,6 +70,7 @@ def main(argv=None) -> int:
     bucket = storage.Client().bucket(gcs_paths.BUCKET)
     stamp = dt.datetime.now(WIB).strftime("%Y%m%d-%H%M")
     plan = []
+    blocked = []
     for src_key, dst_key in PROMOTIONS.items():
         src = bucket.get_blob(src_key)
         if src is None:
@@ -83,8 +91,15 @@ def main(argv=None) -> int:
                 print(f"  columns: +{added}  -{dropped}")
             else:
                 print("  columns: same")
+            unexpected = [c for c in added if c not in EXPECTED_NEW_COLUMNS.get(dst_key, set())]
+            if unexpected or dropped:
+                blocked.append(dst_key)
+                print("  BLOCKED: column change not expected")
         plan.append((src, dst, dst_key))
 
+    if blocked:
+        print(f"\nrefusing to promote - unexpected column changes in {blocked}")
+        return 1
     if not args.apply:
         print("\ndry run - nothing copied (pass --apply)")
         return 0
