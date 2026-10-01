@@ -8,7 +8,7 @@ INPUTS = {
     "sales_parquet/raw/primary/odoo/Odoo Report.xlsx": "Odoo Report.xlsx",
     "sales_parquet/raw/primary/accurate/0. 2025 Accurate.xlsx": "0. 2025 Accurate.xlsx",
     "sales_parquet/raw/primary/e-stock/E-Stock 2025.xlsx": "E-Stock 2025.xlsx",
-    # Written by som-anchanto-report-automation; has the raw Dispatch Date column.
+    # Written by som-anchanto-report-automation; has SentOn (delivery, else dispatch, else scheduled date).
     "sales_parquet/raw/primary/anchanto/Anchanto.parquet": "Anchanto.parquet",
 }
 

@@ -36,7 +36,7 @@ Locally, Sell In reads `Anchanto Report <Y> Q<n>.xlsx`, which
 `build_q3_anchanto_report.py` builds from the Anchanto CSVs. Here
 `anchanto_from_parquet.py` applies that script's rules directly to
 `Anchanto.parquet` (status filter, Marketplace → SalesType, Kode Pos / Channel /
-Product lookups, SentOn = Dispatch Date else CreatedOn, Type of Item filter), so
+Product lookups, SentOn = the parquet's SentOn (delivery, else dispatch, else scheduled date) else CreatedOn, Type of Item filter), so
 the quarterly workbook is not needed.
 
 `--anchanto-scope quarter` (default) reads the same source files the quarterly

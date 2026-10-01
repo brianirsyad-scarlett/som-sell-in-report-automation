@@ -10,7 +10,8 @@ the rows handed to Sell In match what it would have read from the workbook:
   2. SalesType = Marketplace suffix after "_", Nexus -> Endorse, upper-cased
   3. Kode Pos (Postcode -> Province/City), Channel (SalesType) and Product
      (ItemName) looked up from Master Data Sales.xlsx
-  4. SentOn = Dispatch Date if present, else CreatedOn
+  4. SentOn = the parquet's SentOn (Delivery Date, else Dispatch Date, else Scheduled
+     Date), else CreatedOn. NOT the local report's Dispatch Date - on purpose.
   5. Type of Item blank / ACTIVITY / REGULER only
 
 Only the source files the quarterly workbook would have covered are read: the
@@ -44,7 +45,7 @@ MONTH_ABBR = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 PARQUET_COLUMNS = [
-    "Source", "Marketplace", "CreatedOn", "Dispatch Date", "Order Number",
+    "Source", "Marketplace", "CreatedOn", "SentOn", "Order Number",
     "Item Name", "Order Status", "Shipping Postcode", "Ordered Quantity", "Unit Price",
 ]
 
@@ -92,15 +93,6 @@ def _row_group_sources(pf: pq.ParquetFile) -> list[str | None]:
 
 def read_parquet_rows(parquet_path: Path, year: int, month: int, scope: str) -> pd.DataFrame:
     pf = pq.ParquetFile(str(parquet_path))
-    names = pf.schema_arrow.names
-    if "Dispatch Date" not in names:
-        raise SystemExit(
-            f"{parquet_path} has no 'Dispatch Date' column. Sell In's sale date is "
-            "Dispatch Date, else CreatedOn, and the parquet's SentOn (Delivery, else "
-            "Dispatch, else Scheduled) cannot stand in for it. Rebuild the parquet "
-            "with the som-anchanto-report-automation version that keeps the column."
-        )
-
     if scope == "quarter":
         pattern = re.compile("|".join(re.escape(t) for t in quarter_source_tags(year, month)),
                              re.IGNORECASE)
@@ -129,12 +121,12 @@ def read_parquet_rows(parquet_path: Path, year: int, month: int, scope: str) -> 
         table = table.filter(pa.array([wanted(s or "") for s in srcs]))
 
     # Cheap pre-filter on the sale date before going to pandas: the quarterly
-    # workbook's SentOn is Dispatch Date, else CreatedOn. The exact month filter
+    # sale date is the parquet's SentOn, else CreatedOn. The exact month filter
     # happens again in the caller, on the normalised date.
     start = pa.scalar(dt.datetime(year, month, 1), pa.timestamp("us"))
     last = calendar.monthrange(year, month)[1]
     end = pa.scalar(dt.datetime(year, month, last) + dt.timedelta(days=1), pa.timestamp("us"))
-    sent = pc.coalesce(table.column("Dispatch Date"), table.column("CreatedOn"))
+    sent = pc.coalesce(table.column("SentOn"), table.column("CreatedOn"))
     table = table.filter(pc.and_(pc.greater_equal(sent, start), pc.less(sent, end)))
     return table.to_pandas()
 
@@ -178,7 +170,7 @@ def transform(df: pd.DataFrame, kode_pos, channel, product) -> pd.DataFrame:
     unit_price = pd.to_numeric(df["Unit Price"], errors="coerce").fillna(0).astype("int64")
 
     order_date = pd.to_datetime(df["CreatedOn"], errors="coerce").dt.normalize()
-    dispatch_date = pd.to_datetime(df["Dispatch Date"], errors="coerce").dt.normalize()
+    sent_date = pd.to_datetime(df["SentOn"], errors="coerce").dt.normalize()
 
     status = df["Order Status"].astype(str).str.strip()
     mask = status.isin(["DELIVERED", "DISPATCHED"])
@@ -196,7 +188,7 @@ def transform(df: pd.DataFrame, kode_pos, channel, product) -> pd.DataFrame:
         "Quantity": quantity,
         "Unit Price": unit_price,
         "PostCode": df["Shipping Postcode"],
-        "Dispatch Date": dispatch_date,
+        "SentOn": sent_date,
     })
     out = out[mask].reset_index(drop=True)
 
@@ -211,9 +203,7 @@ def transform(df: pd.DataFrame, kode_pos, channel, product) -> pd.DataFrame:
     out = out.merge(channel, how="left", on="SalesType")
     out = out.merge(product, how="left", on="ItemName")
 
-    out["SentOn"] = out["Dispatch Date"]
     out.loc[out["SentOn"].isna(), "SentOn"] = out.loc[out["SentOn"].isna(), "CreatedOn"]
-    out = out.drop(columns=["Dispatch Date"])
 
     out = out[FINAL_COLUMNS]
 
