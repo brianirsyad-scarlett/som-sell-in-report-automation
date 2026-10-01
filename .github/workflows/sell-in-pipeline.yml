@@ -157,6 +157,13 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: python notify.py unmatched work/pcc/unmatched_cities.csv
 
+      # The laptop mirror no longer uploads Anchanto / Primary_Sales / PCC_Sales /
+      # PCC_Order_Number (2026-10-01), so this is what keeps the production names
+      # in sales_parquet/ current. Backs the old files up to sales_parquet/backup/ first.
+      - name: Promote Primary_Sales, Anchanto and PCC parquets to production
+        if: steps.gate.outputs.run == 'true'
+        run: python -u promote_to_production.py --apply
+
       - name: Keep workbooks and unmatched list as artifact
         if: steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
