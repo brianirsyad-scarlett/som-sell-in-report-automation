@@ -127,6 +127,13 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: python -u build_primary_parquet.py combine work/monthly_parquet work/Primary_Sales.parquet
 
+      # Blocking: recompute the Anchanto e-commerce units per month straight from Anchanto.parquet and fail if
+      # Primary_Sales is more than 0.5 % off. Later steps (upload, PCC, promote) are skipped on failure and
+      # "Email on failure" fires. Added 2026-10-08 after a stale-code run published an October 61 % too high.
+      - name: Guard - Anchanto e-commerce units must match Anchanto.parquet
+        if: steps.gate.outputs.run == 'true'
+        run: python -u guard_anchanto.py --parquet work/inputs/Anchanto.parquet --primary work/Primary_Sales.parquet
+
       - name: Compare rebuilt months with production (informational)
         if: steps.gate.outputs.run == 'true'
         continue-on-error: true
