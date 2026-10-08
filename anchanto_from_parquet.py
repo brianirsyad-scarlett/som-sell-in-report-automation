@@ -6,7 +6,11 @@ The quarterly workbook is built by Data\\Report\\Sales\\Anchanto Report\\
 build_q3_anchanto_report.py. That script's rules are repeated here unchanged, so
 the rows handed to Sell In match what it would have read from the workbook:
 
-  1. Order Status in {delivered, dispatched}
+  1. Order Status = delivered, OR dispatched for more than STALE_DISPATCH_DAYS (14) days.
+     (changed 2026-10-07; the local quarterly workbook kept every dispatched row.) Anchanto sometimes
+     never flips an order to "delivered" (e.g. orders created 2025-06-07..2025-07-08), so a dispatched
+     order that old is treated as delivered and dated by its dispatch date. Younger dispatched orders
+     are still in transit and are left out until they age in or get delivered. Matches anchanto_report_v2.
   2. SalesType = Marketplace suffix after "_", Nexus -> Endorse, upper-cased
   3. Kode Pos (Postcode -> Province/City), Channel (SalesType) and Product
      (ItemName) looked up from Master Data Sales.xlsx
@@ -42,6 +46,9 @@ log = logging.getLogger("anchanto_from_parquet")
 
 MONTH_ABBR = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+# A "dispatched" order older than this many days is counted as delivered (see the module docstring).
+STALE_DISPATCH_DAYS = 14
 
 PARQUET_COLUMNS = [
     "Source", "Marketplace", "CreatedOn", "SentOn", "Order Number",
@@ -180,7 +187,10 @@ def transform(df: pd.DataFrame, kode_pos, channel, product) -> pd.DataFrame:
     dispatch_date = pd.to_datetime(df["SentOn"], errors="coerce").dt.normalize()
 
     status = df["Order Status"].astype(str).str.strip()
-    mask = status.isin(["DELIVERED", "DISPATCHED"])
+    # delivered, or dispatched long enough ago that Anchanto will never flip it (date = SentOn, else CreatedOn)
+    sale_date = dispatch_date.fillna(order_date)
+    cutoff = pd.Timestamp(dt.datetime.now().date()) - pd.Timedelta(days=STALE_DISPATCH_DAYS)
+    mask = (status == "DELIVERED") | ((status == "DISPATCHED") & (sale_date <= cutoff))
 
     marketplace_suffix = df["Marketplace"].astype(str).str.split("_", n=1, expand=True)
     marketplace_suffix = (marketplace_suffix[1] if 1 in marketplace_suffix.columns

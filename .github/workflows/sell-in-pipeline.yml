@@ -13,8 +13,8 @@ on:
         default: "prev,current"
         required: true
       anchanto_scope:
-        description: "quarter = same Anchanto files as the local report; all = every file"
-        default: "quarter"
+        description: "all = every Anchanto file (default, matches anchanto_report_v2); quarter = same files as the local report"
+        default: "all"
         type: choice
         options: [quarter, all]
       force:
@@ -117,7 +117,7 @@ jobs:
           IFS=',' read -ra months <<< "${{ inputs.months || 'prev,current' }}"
           for m in "${months[@]}"; do args+=(--month "$(echo "$m" | xargs)"); done
           python -u sales_monthly_report.py "${args[@]}" --no-backup \
-            --anchanto-scope "${{ inputs.anchanto_scope || 'quarter' }}"
+            --anchanto-scope "${{ inputs.anchanto_scope || 'all' }}"
 
       - name: Workbooks -> monthly parquet
         if: steps.gate.outputs.run == 'true'

@@ -377,7 +377,7 @@ def q_anchanto(spec: "MonthSpec", start: dt.date, end: dt.date) -> pl.DataFrame:
     return df
 
 
-ANCHANTO_SCOPE = "quarter"
+ANCHANTO_SCOPE = "all"
 _MASTERS_CACHE: list = []
 
 
@@ -633,10 +633,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="Root for the output workbooks; each goes to <out-dir>/<year>/. "
                          "Default: work/output.")
-    ap.add_argument("--anchanto-scope", choices=("quarter", "all"), default="quarter",
-                    help="quarter (default): only the Anchanto source files the local "
-                         "quarterly workbook covers, so results match the local report. "
-                         "all: every file in the parquet.")
+    ap.add_argument("--anchanto-scope", choices=("quarter", "all"), default="all",
+                    help="all (default, since 2026-10-07): every file in the parquet, so a month also "
+                         "gets orders created in an earlier quarter and delivered later - matches "
+                         "anchanto_report_v2. quarter: only the source files the local quarterly "
+                         "workbook covers.")
     ap.add_argument("--no-backup", action="store_true",
                     help="Do not copy the previous workbook into ./backups first.")
     ap.add_argument("--dry-run", action="store_true",
