@@ -29,11 +29,11 @@ on:
   # 07:00 one with final=true - the same as the crons below would.
   # On time: Power Automate 'GitHub timer' -> dispatch.yml. Cron = backup only.
   schedule:
-    # Poll every 20 minutes. A run only does real work when gate.py says so (Odoo and
+    # Poll every 20 minutes (off-peak minutes: GitHub drops runs at :00 and :30). A run only does real work when gate.py says so (Odoo and
     # Anchanto both idle, inputs fresh, something newer than the last build), so most
     # polls end after ~1 minute. Polling - instead of a few fixed slots - means a build
     # starts within 20 minutes of the Anchanto/Odoo runs finishing, however late GitHub is.
-    - cron: "*/20 * * * *"
+    - cron: "7,27,47 * * * *"
     # 07:00 WIB: the last check of the morning - an input that is still too old
     # fails the run, which emails.
     - cron: "0 0 * * *"
