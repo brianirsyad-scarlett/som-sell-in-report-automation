@@ -1,5 +1,9 @@
 """
-Email the unmatched PCC cities (or a pipeline failure) via Gmail SMTP.
+Email the unmatched PCC cities (or a pipeline failure).
+
+Primary route (no password, no premium licence): open an issue "MAIL|<subject>" in this repo with
+the workflow's own token. A Power Automate flow ("When an issue is opened" -> Outlook "Send an
+email") turns it into a mail. Fallback: Gmail SMTP.
 
 Credentials come from the environment (GitHub secrets): SMTP_USER and
 SMTP_APP_PASSWORD - a Gmail app password, the same kind the B2B IMAP downloader uses.
@@ -14,15 +18,41 @@ from __future__ import annotations
 
 import csv
 import os
+import json
 import smtplib
 import sys
+import urllib.request
 from email.message import EmailMessage
 from pathlib import Path
 
 DEFAULT_TO = "brian.rinaldy@lmbg.co.id"
 
 
+def send_via_issue(subject: str, body: str, attachment: Path | None) -> bool:
+    """MAIL| issue for the Power Automate flow. Repos are public, so keep the body to non-sensitive text."""
+    token, repo = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"), os.environ.get("GITHUB_REPOSITORY")
+    if not (token and repo):
+        return False
+    if attachment and attachment.exists():
+        body += "
+
+" + attachment.read_text(encoding="utf-8")[:20000]
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/issues", method="POST",
+        data=json.dumps({"title": f"MAIL|{subject}", "body": body}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            print(f"queued mail issue #{json.load(resp)['number']}: {subject}")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"::warning::could not open the mail issue: {exc}")
+        return False
+
+
 def send(subject: str, body: str, attachment: Path | None = None) -> None:
+    if send_via_issue(subject, body, attachment):
+        return
     user, pw = os.environ.get("SMTP_USER"), os.environ.get("SMTP_APP_PASSWORD")
     if not (user and pw):
         raise SystemExit("SMTP_USER / SMTP_APP_PASSWORD not set - cannot send email.")

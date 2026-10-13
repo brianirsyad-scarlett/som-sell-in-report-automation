@@ -38,6 +38,11 @@ on:
     # fails the run, which emails.
     - cron: "0 0 * * *"
 
+permissions:
+  contents: read
+  actions: read
+  issues: write   # notify.py opens a MAIL| issue; Power Automate mails it
+
 concurrency:
   group: sell-in-pipeline
   cancel-in-progress: false
@@ -50,6 +55,7 @@ env:
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   SMTP_USER: ${{ secrets.SMTP_USER }}
   SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+  GITHUB_TOKEN: ${{ github.token }}
   NOTIFY_TO: ${{ vars.NOTIFY_TO || 'brian.rinaldy@lmbg.co.id' }}
 
 jobs:
