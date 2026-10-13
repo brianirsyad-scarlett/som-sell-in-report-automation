@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -42,6 +43,10 @@ KEEP_BACKUPS = 10
 # well, so unhiding one while working does not put its rows (and extra columns) in Distributor_Sales.parquet.
 EXCLUDED_SHEETS = {"master_data"}
 
+# Only the ten regional workbooks ("1. Sumbagut Sell Through.xlsx" ...). A stray copy in the folder
+# (e.g. "COPY-List Toko ... AutoRecovered.xlsx") has other columns and must never be compiled.
+REGIONAL_WORKBOOK = re.compile(r"^\d+\. .+ Sell Through\.xlsx$", re.I)
+
 MIN_ROWS_VS_PRODUCTION = 0.90   # refuse a publish that would shrink the table by more than 10%
 MIN_DATE_FILLED = 0.95          # share of rows with a parseable Date (~1% are empty Bali Nusra rows with Total 0, as on the laptop)
 
@@ -53,7 +58,7 @@ MIN_DATE_FILLED = 0.95          # share of rows with a parseable Date (~1% are e
 def compile_folder(folder: Path) -> pd.DataFrame:
     from openpyxl import load_workbook
 
-    files = sorted(p for p in folder.glob("*.xlsx") if not p.name.startswith("~$"))
+    files = sorted(p for p in folder.glob("*.xlsx") if REGIONAL_WORKBOOK.match(p.name))
     if not files:
         raise SystemExit(f"No .xlsx files in {folder}")
 
@@ -116,7 +121,7 @@ def _bucket():
 
 def source_blobs(bucket):
     return [b for b in bucket.list_blobs(prefix=SRC_PREFIX)
-            if b.name.lower().endswith(".xlsx") and not b.name.rsplit("/", 1)[-1].startswith("~$")]
+            if REGIONAL_WORKBOOK.match(b.name.rsplit("/", 1)[-1])]
 
 
 def gate(bucket, force: bool) -> tuple[bool, str]:
