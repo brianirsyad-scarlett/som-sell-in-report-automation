@@ -29,10 +29,11 @@ on:
   # 07:00 one with final=true - the same as the crons below would.
   # On time: Power Automate 'GitHub timer' -> dispatch.yml. Cron = backup only.
   schedule:
-    # WIB (UTC+7): 00:55, 06:55, 12:55, 18:55 - 25 min after each Anchanto run
-    # starts (it takes ~22 min). If Anchanto or Odoo is still running the gate
-    # waits and the Power Automate slots / next slot pick it up.
-    - cron: "55 5,11,17,23 * * *"
+    # Poll every 20 minutes. A run only does real work when gate.py says so (Odoo and
+    # Anchanto both idle, inputs fresh, something newer than the last build), so most
+    # polls end after ~1 minute. Polling - instead of a few fixed slots - means a build
+    # starts within 20 minutes of the Anchanto/Odoo runs finishing, however late GitHub is.
+    - cron: "*/20 * * * *"
     # 07:00 WIB: the last check of the morning - an input that is still too old
     # fails the run, which emails.
     - cron: "0 0 * * *"
@@ -52,26 +53,7 @@ env:
   NOTIFY_TO: ${{ vars.NOTIFY_TO || 'brian.rinaldy@lmbg.co.id' }}
 
 jobs:
-  # Backup (cron) runs skip themselves when the on-time run started by
-  # dispatch.yml (Power Automate "GitHub timer") already did the work - guard.sh.
-  guard:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      run: ${{ steps.g.outputs.run }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: g
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash guard.sh sell-in-pipeline.yml 55
-
   sell-in:
-    needs: guard
-    if: needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:

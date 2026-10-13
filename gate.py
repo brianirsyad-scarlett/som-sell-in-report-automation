@@ -3,8 +3,7 @@ Decide whether the Sell In -> PCC chain should run now.
 
 The upstream pipelines (Odoo hourly, Anchanto every 6 hours, Accurate daily) run in
 their own repos and GitHub starts scheduled runs late, so a fixed start time cannot
-guarantee they are done. Instead this workflow is scheduled shortly after each
-Anchanto run and builds only when ALL of these hold:
+guarantee they are done. Instead this workflow polls every 20 minutes and builds only when ALL of these hold:
 
   * neither the Odoo nor the Anchanto pipeline is queued or running (so the build
     always sees both of their finished outputs, never one half-way through), and
@@ -41,6 +40,9 @@ MAX_AGE = {
     "Anchanto": dt.timedelta(hours=8),
     "Accurate": dt.timedelta(hours=30),
 }
+# Odoo changes every hour, Anchanto every ~6 h. A build downloads ~1 GB, so an Odoo-only
+# change rebuilds at most this often; a new Anchanto output rebuilds as soon as it lands.
+MIN_REBUILD = dt.timedelta(hours=3)
 # Pipelines whose runs in other repos must be finished before a build starts.
 RUNNING_CHECKS = {
     "Odoo": ("brianirsyad-scarlett/som-odoo-report-automation", "odoo-export.yml"),
@@ -103,6 +105,8 @@ def main(argv=None) -> int:
         run, reason = False, f"waiting for a fresh {', '.join(stale)}"
     elif out_time and newest and out_time >= newest:
         run, reason = False, "already built after the latest Odoo, Anchanto and Accurate"
+    elif out_time and times["Anchanto"] and out_time >= times["Anchanto"] and now - out_time < MIN_REBUILD:
+        run, reason = False, f"built {(now - out_time).total_seconds() / 3600:.1f} h ago; only Odoo/Accurate changed since (rebuild at most every 3 h)"
     else:
         run, reason = True, "inputs fresh and newer than the last build"
     print(f"run={run} ({reason})")
