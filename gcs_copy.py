@@ -6,8 +6,10 @@
 """
 
 import sys
+import time
 from pathlib import Path
 
+from google.api_core.exceptions import NotFound
 from google.cloud import storage
 
 import gcs_paths
@@ -20,12 +22,24 @@ def main(argv) -> int:
         if a.endswith("/"):
             dest = Path(b)
             dest.mkdir(parents=True, exist_ok=True)
-            n = 0
-            for blob in bucket.list_blobs(prefix=a):
-                if blob.name.endswith("/"):
-                    continue
-                blob.download_to_filename(str(dest / blob.name.rsplit("/", 1)[-1]), timeout=900)
-                n += 1
+            # A prefix can be re-exported while we copy it (sales_order_number/ is rewritten by the
+            # BigQuery SOM_Daily export): a shard listed a moment ago is then gone (404). Start over.
+            for attempt in range(1, 6):
+                n = 0
+                try:
+                    for blob in bucket.list_blobs(prefix=a):
+                        if blob.name.endswith("/"):
+                            continue
+                        blob.download_to_filename(str(dest / blob.name.rsplit("/", 1)[-1]), timeout=900)
+                        n += 1
+                    break
+                except NotFound as exc:
+                    print(f"  attempt {attempt}: {exc.message[:120]} - the prefix changed while copying, retrying")
+                    if attempt == 5:
+                        raise
+                    time.sleep(45)
+                    for old in dest.iterdir():
+                        old.unlink()
             print(f"downloaded {n} object(s) from gs://{gcs_paths.BUCKET}/{a}")
         else:
             Path(b).parent.mkdir(parents=True, exist_ok=True)
