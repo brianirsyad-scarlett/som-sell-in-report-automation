@@ -34,9 +34,7 @@ def send_via_issue(subject: str, body: str, attachment: Path | None) -> bool:
     if not (token and repo):
         return False
     if attachment and attachment.exists():
-        body += "
-
-" + attachment.read_text(encoding="utf-8")[:20000]
+        body += "\n\n" + attachment.read_text(encoding="utf-8")[:20000]
     req = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/issues", method="POST",
         data=json.dumps({"title": f"MAIL|{subject}", "body": body}).encode(),
