@@ -33,9 +33,15 @@ def send(subject: str, body: str, attachment: Path | None = None) -> None:
     if attachment and attachment.exists():
         msg.add_attachment(attachment.read_bytes(), maintype="text", subtype="csv",
                            filename=attachment.name)
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as s:
-        s.login(user, pw)
-        s.send_message(msg)
+    # An alert that cannot be sent must never fail the pipeline it is reporting on (it used to
+    # skip the production promote when the mailbox login was rejected).
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as s:
+            s.login(user, pw)
+            s.send_message(msg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"::warning::EMAIL NOT SENT ('{subject}'): {exc}")
+        return
     print(f"sent '{subject}' to {', '.join(to)}")
 
 
