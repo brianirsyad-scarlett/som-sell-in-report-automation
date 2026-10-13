@@ -26,6 +26,8 @@ from email.message import EmailMessage
 from pathlib import Path
 
 DEFAULT_TO = "brian.rinaldy@lmbg.co.id"
+# The Power Automate trigger "When a new issue is opened and assigned to me" only sees issues assigned to this account.
+ASSIGNEE = "brianirsyad-scarlett"
 
 
 def send_via_issue(subject: str, body: str, attachment: Path | None) -> bool:
@@ -37,7 +39,7 @@ def send_via_issue(subject: str, body: str, attachment: Path | None) -> bool:
         body += "\n\n" + attachment.read_text(encoding="utf-8")[:20000]
     req = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/issues", method="POST",
-        data=json.dumps({"title": f"MAIL|{subject}", "body": body}).encode(),
+        data=json.dumps({"title": f"MAIL|{subject}", "body": body, "assignees": [ASSIGNEE]}).encode(),
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
