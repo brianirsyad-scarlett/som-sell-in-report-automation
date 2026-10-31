@@ -47,16 +47,45 @@ EXPECTED_NEW_COLUMNS = {
     "sales_parquet/Anchanto.parquet": {"Dispatch Date", "Delivery Date"},
 }
 
+# Guards added 2026-10-31 when the chain went hourly (Power BI reads these files through
+# BigQuery external tables, so a bad promotion reaches the report within the hour):
+# a new file must keep at least this share of the production rows...
+MIN_ROW_RATIO = 0.95
+# ...and its newest date must not be older than production's (a build from stale inputs).
+DATE_GUARDS = {
+    "sales_parquet/Primary_Sales.parquet": "SentOn",
+}
+
 
 def describe(blob) -> str:
     return f"{blob.size / 1e6:,.1f} MB, updated {blob.updated.astimezone(WIB):%Y-%m-%d %H:%M} WIB"
 
 
-def schema(blob) -> tuple[list[str], int]:
-    """Column names and row count, read from the parquet footer only."""
+def footer(blob) -> pq.FileMetaData:
+    """Parquet footer only (schema, row count, row-group statistics) - no data download."""
     with blob.open("rb") as fh:
-        meta = pq.ParquetFile(fh).metadata
-        return meta.schema.to_arrow_schema().names, meta.num_rows
+        return pq.ParquetFile(fh).metadata
+
+
+def schema(meta: pq.FileMetaData) -> tuple[list[str], int]:
+    """Column names and row count."""
+    return meta.schema.to_arrow_schema().names, meta.num_rows
+
+
+def column_max(meta: pq.FileMetaData, column: str):
+    """Max of a column from the row-group statistics, or None if the writer stored none."""
+    names = meta.schema.to_arrow_schema().names
+    if column not in names:
+        return None
+    idx = names.index(column)
+    best = None
+    for i in range(meta.num_row_groups):
+        stats = meta.row_group(i).column(idx).statistics
+        if stats is None or not stats.has_min_max:
+            return None
+        if best is None or stats.max > best:
+            best = stats.max
+    return best
 
 
 def copy(bucket, src, dst_key: str) -> None:
@@ -96,13 +125,15 @@ def main(argv=None) -> int:
             print(f"MISSING source gs://{gcs_paths.BUCKET}/{src_key}")
             return 1
         dst = bucket.get_blob(dst_key)
-        src_cols, src_rows = schema(src)
+        src_meta = footer(src)
+        src_cols, src_rows = schema(src_meta)
         print(f"\n{dst_key}")
         print(f"  new  <- {src_key}  ({describe(src)}, {src_rows:,} rows)")
         if dst is None:
             print("  old     (none)")
         else:
-            dst_cols, dst_rows = schema(dst)
+            dst_meta = footer(dst)
+            dst_cols, dst_rows = schema(dst_meta)
             print(f"  old     ({describe(dst)}, {dst_rows:,} rows)")
             added = [c for c in src_cols if c not in dst_cols]
             dropped = [c for c in dst_cols if c not in src_cols]
@@ -112,12 +143,24 @@ def main(argv=None) -> int:
                 print("  columns: same")
             unexpected = [c for c in added if c not in EXPECTED_NEW_COLUMNS.get(dst_key, set())]
             if unexpected or dropped:
-                blocked.append(dst_key)
+                blocked.append(f"{dst_key} (column change not expected)")
                 print("  BLOCKED: column change not expected")
+            if dst_rows and src_rows < MIN_ROW_RATIO * dst_rows:
+                blocked.append(f"{dst_key} (rows {src_rows:,} < {MIN_ROW_RATIO:.0%} of {dst_rows:,})")
+                print(f"  BLOCKED: only {src_rows / dst_rows:.1%} of the production rows")
+            date_col = DATE_GUARDS.get(dst_key)
+            if date_col:
+                new_max, old_max = column_max(src_meta, date_col), column_max(dst_meta, date_col)
+                print(f"  newest {date_col}: new {new_max}  old {old_max}")
+                if new_max is not None and old_max is not None and new_max < old_max:
+                    blocked.append(f"{dst_key} (newest {date_col} {new_max} is older than production's {old_max})")
+                    print(f"  BLOCKED: newest {date_col} went backwards")
         plan.append((src, dst, dst_key))
 
     if blocked:
-        print(f"\nrefusing to promote - unexpected column changes in {blocked}")
+        print("\nrefusing to promote - production left unchanged:")
+        for b in blocked:
+            print(f"  - {b}")
         return 1
     if not args.apply:
         print("\ndry run - nothing copied (pass --apply)")
