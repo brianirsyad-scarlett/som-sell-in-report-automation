@@ -1,10 +1,11 @@
 name: Sell In + PCC Pipeline
 
-# Runs after the Odoo (hourly), Anchanto (every 6 h) and Accurate (daily) pipelines
-# (separate repos). GitHub starts scheduled runs late, so instead of guessing one
-# start time this is scheduled after each Anchanto run and gate.py only lets it
-# through once neither Odoo nor Anchanto is still running, every input is recent,
-# and something is newer than the last Primary_Sales build.
+# Runs after the Odoo (hourly), Anchanto (hourly) and Accurate (daily) pipelines
+# (separate repos). Power Automate "GitHub timer" starts it every 30 minutes (:15 / :45)
+# and gate.py only lets it through once neither Odoo nor Anchanto is still running,
+# every input is recent, and something is newer than the last Primary_Sales build
+# (rebuilds at most hourly). promote_to_production.py refuses to publish a file with
+# fewer than 95 % of the production rows or an older newest SentOn.
 on:
   workflow_dispatch:
     inputs:
