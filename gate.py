@@ -7,7 +7,9 @@ guarantee they are done. Instead this workflow is started every 30 minutes (Powe
 "GitHub timer", :15 / :45) and builds only when ALL of these hold:
 
   * neither the Odoo nor the Anchanto pipeline is queued or running (so the build
-    always sees both of their finished outputs, never one half-way through), and
+    always sees both of their finished outputs, never one half-way through) - unless the
+    last build is already MAX_WAIT old: then it builds from their last finished uploads
+    (a GCS object is replaced in one step, so a running upstream never shows half a file), and
   * every input is recent enough: Odoo <= 3 h, Anchanto <= 8 h, Accurate <= 30 h, and
   * at least one input is newer than the last Primary_Sales build.
 
@@ -46,6 +48,10 @@ MAX_AGE = {
 # rebuilds as soon as it lands. A build takes ~45 min, and the concurrency group keeps
 # builds from overlapping.
 MIN_REBUILD = dt.timedelta(hours=1)
+# Longest the build waits for a running Odoo/Anchanto. Added 2026-11-19: Anchanto runs grew to
+# 30-75 min and start hourly, so one was ALWAYS in progress and Primary_Sales sat at 11-17 09:41
+# for two days while every run reported success ("waiting for the Odoo, Anchanto pipeline").
+MAX_WAIT = dt.timedelta(hours=2)
 # Pipelines whose runs in other repos must be finished before a build starts.
 RUNNING_CHECKS = {
     "Odoo": ("brianirsyad-scarlett/som-odoo-report-automation", "odoo-export.yml"),
@@ -102,7 +108,7 @@ def main(argv=None) -> int:
 
     if args.force:
         run, reason = True, "forced"
-    elif running:
+    elif running and (out_time is None or now - out_time < MAX_WAIT):
         run, reason = False, f"waiting for the {', '.join(running)} pipeline to finish"
     elif stale:
         run, reason = False, f"waiting for a fresh {', '.join(stale)}"
@@ -110,6 +116,10 @@ def main(argv=None) -> int:
         run, reason = False, "already built after the latest Odoo, Anchanto and Accurate"
     elif out_time and times["Anchanto"] and out_time >= times["Anchanto"] and now - out_time < MIN_REBUILD:
         run, reason = False, f"built {(now - out_time).total_seconds() / 3600:.1f} h ago; only Odoo/Accurate changed since (rebuild at most every {MIN_REBUILD.total_seconds() / 3600:g} h)"
+    elif running:
+        run, reason = True, (f"{', '.join(running)} still running, but the last build is "
+                             f"{(now - out_time).total_seconds() / 3600:.1f} h old - building from "
+                             f"their last finished outputs")
     else:
         run, reason = True, "inputs fresh and newer than the last build"
     print(f"run={run} ({reason})")

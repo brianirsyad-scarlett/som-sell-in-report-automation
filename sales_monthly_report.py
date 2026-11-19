@@ -558,6 +558,43 @@ def publish(staged: Path, target: Path, backup: bool) -> None:
 # One month
 # --------------------------------------------------------------------------- #
 
+def fit_ranges_to_excel(online: pl.DataFrame,
+                        ranges: list[tuple[dt.date, dt.date]]) -> list[tuple[dt.date, dt.date]]:
+    """Cut any Online date range that would overflow one Excel sheet into more ranges.
+
+    Added 2026-11-19: Nov 2026 1..15 reached 1.28M rows (11.11 sale + Anchanto's new layout
+    keeping dispatch-dated rows) and the nightly build died on Excel's row limit, on the iMac
+    and the laptop alike. Normal months keep the plain --split-day layout; only a range over
+    the limit is cut, at whole days, into the fewest pieces. Sheet names stay
+    "<month> Online (n)", numbered in date order, so every reader of the workbook keeps working.
+    """
+    limit = EXCEL_MAX_ROWS - 1            # one row is the header
+    out: list[tuple[dt.date, dt.date]] = []
+    for lo, hi in ranges:
+        part = online.filter(pl.col("SentOn").is_between(lo, hi))
+        if part.height <= limit:
+            out.append((lo, hi))
+            continue
+        per_day = dict(part.group_by("SentOn").len().iter_rows())
+        days = [lo + dt.timedelta(d) for d in range((hi - lo).days + 1)]
+        biggest = max(per_day.values())
+        if biggest > limit:
+            raise SystemExit(f"{max(per_day, key=per_day.get)} alone has {biggest:,} Online rows - "
+                             f"more than one Excel sheet holds ({limit:,}); cannot split by day.")
+        first = len(out)
+        start, acc = days[0], 0
+        for day in days:            # fill each sheet up to the limit -> fewest sheets
+            n = per_day.get(day, 0)
+            if acc and acc + n > limit:
+                out.append((start, day - dt.timedelta(1)))
+                start, acc = day, 0
+            acc += n
+        out.append((start, hi))
+        log.warning("  %s..%s has %s Online rows (over Excel's %s) - split automatically into %d sheets",
+                    lo, hi, f"{part.height:,}", f"{EXCEL_MAX_ROWS:,}", len(out) - first)
+    return out
+
+
 def build_month(spec: MonthSpec, base: pl.DataFrame, dry_run: bool, backup: bool) -> None:
     log.info("=" * 72)
     log.info("Building %s  (%s .. %s)", spec.label, spec.start, spec.end)
@@ -581,7 +618,7 @@ def build_month(spec: MonthSpec, base: pl.DataFrame, dry_run: bool, backup: bool
     log.info("  %-28s %8d rows", "Online (all)", online_all.height)
 
     sheets: list[tuple[str, pl.DataFrame]] = [(f"{spec.label} Offline", offline)]
-    ranges = spec.online_ranges()
+    ranges = fit_ranges_to_excel(online_all, spec.online_ranges())
     for n, (lo, hi) in enumerate(ranges, start=1):
         part = online_all.filter(pl.col("SentOn").is_between(lo, hi))
         name = f"{spec.label} Online ({n})" if len(ranges) > 1 else f"{spec.label} Online"
